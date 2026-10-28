@@ -92,6 +92,9 @@ select:focus-visible, input:focus-visible, textarea:focus-visible, button:focus-
 .pts .v { font-family: var(--f-mono); font-size: 1.5rem; font-weight: 600; }
 .bonus { flex: 1 1 200px; justify-content: center; display: flex; align-items: center; gap: 8px; flex-wrap: wrap; font-size: .85rem; color: var(--muted); }
 .bonus input { width: 5.5em; }
+.bonus input:disabled { opacity: .6; cursor: not-allowed; }
+.lockhint { font-size: .75rem; color: var(--gold); font-weight: 700; white-space: nowrap; flex-basis: 100%; text-align: center; }
+.lockhint.locked { color: var(--muted); font-weight: 500; }
 .bonus b { color: var(--fg); font-family: var(--f-mono); font-weight: 600; }
 
 /* buttons */
@@ -183,10 +186,6 @@ button.cbox:disabled { opacity: .45; }
 footer { color: var(--muted); font-size: .92rem; max-width: 72ch; }
 footer a { color: var(--accent); }
 
-/* status edit dialog */
-.modal { position: fixed; inset: 0; background: color-mix(in srgb, var(--bg) 70%, transparent); display: grid; place-items: center; padding: 16px; z-index: 20; }
-.modal .panel { width: min(560px, 100%); max-height: 90vh; overflow: auto; box-shadow: 0 12px 40px rgba(0,0,0,.25); }
-.editgrid { display: grid; grid-template-columns: repeat(auto-fill, minmax(110px, 1fr)); gap: 8px; }
 @media (prefers-reduced-motion: no-preference) { .flash { animation: fl .5s ease-out; } @keyframes fl { from { background: var(--gold-bg); } } }
 </style>
 
@@ -219,7 +218,7 @@ footer a { color: var(--accent); }
       <div class="lvrow">
         <div class="lv"><span class="k">LV</span><span class="v" id="lv">1</span><span class="max" id="lvmax">/ 285</span></div>
         <div class="bonus">
-          <label for="bonus">送點率</label><input type="number" id="bonus" min="0" max="100" step="5" value="50">%
+          <label for="bonus">送點率</label><input type="number" id="bonus" min="0" max="100" step="5" value="50">%<span class="lockhint" id="bonushint">開始升級後就不能再修改</span>
           <span>實際 <b id="brate">0%</b>（<span id="bcount">0 / 0</span>）</span>
         </div>
         <div class="pts"><div class="label">剩餘點數</div><div class="v" id="pts">0</div></div>
@@ -228,7 +227,6 @@ footer a { color: var(--accent); }
       <div class="actions">
         <div class="bar arow1">
           <button id="b-reset">重設</button>
-          <button id="b-edit">狀態編輯<kbd>T</kbd></button>
         </div>
         <div class="arow2">
           <span class="navgroup">
@@ -261,7 +259,7 @@ footer a { color: var(--accent); }
     <section class="panel log" aria-label="記錄">
       <div class="field">
         <label class="label" for="logarea">配點記錄</label>
-        <textarea id="logarea" spellcheck="false" wrap="off"></textarea>
+        <textarea id="logarea" spellcheck="false" wrap="off" autocomplete="off" autocorrect="off" autocapitalize="off" inputmode="none" aria-readonly="true"></textarea>
       </div>
       <div class="bar">
         <button class="primary" id="b-copy">複製</button>
@@ -270,7 +268,7 @@ footer a { color: var(--accent); }
         <button id="b-clear">清空文字框</button>
       </div>
       <p class="toast" id="toast" role="status"></p>
-      <p class="note">把別人的記錄貼進文字框，按「讀取記錄」就會從頭重算一次（僅限這個模擬器產生、開頭有【精森天翼配點模擬器 配點記錄】的記錄）。你的進度會自動存在這個瀏覽器裡。</p>
+      <p class="note">配點記錄不能手動修改，只能選取和複製。要讀別人的記錄：在文字框裡貼上（Ctrl+V 或長按貼上），會整份取代原本的內容，再按「讀取記錄」就會從頭重算一次（僅限這個模擬器產生、開頭有【精森天翼配點模擬器 配點記錄】的記錄）。你的進度會自動存在這個瀏覽器裡。</p>
       <div class="keys" aria-label="快捷鍵">
         <div class="keys-t">快捷鍵</div>
         <ul>
@@ -285,15 +283,6 @@ footer a { color: var(--accent); }
 
 </div>
 
-<div class="modal" id="modal" hidden>
-  <div class="panel" role="dialog" aria-modal="true" aria-labelledby="mt">
-    <div class="label" id="mt">狀態編輯：從任意狀態開始模擬</div>
-    <div class="editgrid" id="editgrid"></div>
-    <div class="field"><span class="label">Xien 等級</span><div class="editgrid" id="editxi"></div></div>
-    <p class="note">套用後會清除目前的步驟記錄，從這個狀態重新開始。</p>
-    <div class="bar"><button class="primary" id="m-ok">套用</button><button id="m-cancel">取消</button></div>
-  </div>
-</div>
 
 <script>
 const SELF_TPL = "";
@@ -624,7 +613,7 @@ function makeEngine(D) {
         if (v.lv >= 1 && v.lv <= D.MAX_LEVEL) S = fromStatus(c, s, S.bonus, v);
       } else if (tp[0] === 'Bonus' || tp[0] === '加成') {
         const n = parseInt(body.replace('%', ''), 10);
-        if (!isNaN(n)) setBonus(S, n);
+        if (!isNaN(n)) { if (S.lv > S.startLv && n !== S.bonus) S.midBonus = true; setBonus(S, n); }
       } else if (tp[0] === 'Xien') {
         const nm = body.trim();
         const x = findXien(nm);
@@ -723,6 +712,8 @@ if (typeof module !== 'undefined') module.exports = makeEngine;
 
 const E = makeEngine(DATA), D = DATA;
 const $ = (id) => document.getElementById(id);
+let logShown = '';
+const setLog = (v) => { logShown = v; $('logarea').value = v; };
 const STAT_KEYS = ['S', 'H', 'I', 'F', 'M', 'X', 'A'];
 let S, hist = [], histKey = [], hi = -1, shift = false;
 
@@ -739,6 +730,7 @@ function pushStep(key) {
   hi = hist.length - 1;
 }
 function commit(refreshLog, key) { pushStep(key); render(!!refreshLog); }
+const DEFAULT_BONUS = 50; // 送點率預設值
 function newSession(c, s, bonus) {
   S = E.init(c, s, bonus);
   hist = []; histKey = []; hi = -1; commit();
@@ -773,6 +765,12 @@ function render(updateLog) {
   $('lv').textContent = S.lv; $('lvmax').textContent = '/ ' + D.MAX_LEVEL;
   $('pts').textContent = S.pts;
   if (document.activeElement !== $('bonus')) $('bonus').value = S.bonus;
+  // 送點率只能在開始配點前（起始等級）設定
+  const bonusLocked = S.lv > S.startLv;
+  $('bonus').disabled = bonusLocked;
+  $('bonus').title = bonusLocked ? '配點開始後無法更改送點率；按「重設」或降級回起始等級即可重新設定' : '開始升級前設定送點率';
+  $('bonushint').textContent = bonusLocked ? '已鎖定（按「重設」可重新設定）' : '開始升級後就不能再修改';
+  $('bonushint').classList.toggle('locked', bonusLocked);
   $('brate').textContent = E.bonusRate(S); $('bcount').textContent = S.tbonus + ' / ' + S.tlvup;
   for (let i = 0; i < 7; i++) {
     const c = E.cost(S, i);
@@ -788,7 +786,7 @@ function render(updateLog) {
   $('b-back').disabled = $('b-dback').disabled = hi <= 0; $('b-fwd').disabled = $('b-dfwd').disabled = hi >= hist.length - 1;
   const t = E.logText(S);
   store('oresim-log', t);
-  if (updateLog) { $('logarea').value = t; $('logarea').scrollTop = $('logarea').scrollHeight; }
+  if (updateLog) { setLog(t); $('logarea').scrollTop = $('logarea').scrollHeight; }
 }
 function toast(msg) { $('toast').textContent = msg; clearTimeout(toast.t); toast.t = setTimeout(() => ($('toast').textContent = ''), 2500); }
 function flashLv() { const el = $('lv').parentElement.parentElement; el.classList.remove('flash'); void el.offsetWidth; el.classList.add('flash'); }
@@ -816,21 +814,23 @@ const act = {
     if (k) while (j + 1 < hist.length && histKey[j + 1] === k) j++;
     hi = j; S = E.clone(hist[hi]); render(false);
   },
-  reset() { newSession(S.c, S.s, S.bonus); toast('已重設為初始狀態'); },
+  reset() { newSession(S.c, S.s, DEFAULT_BONUS); toast('已重設為初始狀態（送點率回到 ' + DEFAULT_BONUS + '%）'); },
   load() {
     const r = E.loadLog($('logarea').value, { c: S.c, s: S.s }, { strict: true });
     if (!r) { toast('只能讀取「精森天翼配點模擬器」產生的配點記錄（第一行要有' + E.SIGNATURE + '）'); return; }
+    if (r.start) { toast('這份記錄是用「狀態編輯」從任意數值開始的，已不支援讀取'); return; }
+    if (r.midBonus) { toast('這份記錄在配點過程中更改過送點率，已不支援讀取'); return; }
     if (HIDDEN_CHARS.includes(r.c)) { toast('這個角色目前不在模擬器中'); return; }
     S = r; hist = []; histKey = []; hi = -1; commit(); toast('已讀取記錄並重算');
   },
-  recipe() { $('logarea').value = E.recipeText(S); $('logarea').scrollTop = 0; toast('已產生配方，可直接複製貼到論壇'); },
+  recipe() { setLog(E.recipeText(S)); $('logarea').scrollTop = 0; toast('已產生配方，可直接複製貼到論壇'); },
 };
 
 // events
-$('char').addEventListener('change', (e) => newSession(+e.target.value, 0, S.bonus));
-$('style').addEventListener('change', (e) => newSession(S.c, +e.target.value, S.bonus));
+$('char').addEventListener('change', (e) => newSession(+e.target.value, 0, DEFAULT_BONUS));
+$('style').addEventListener('change', (e) => newSession(S.c, +e.target.value, DEFAULT_BONUS));
 $('xien').addEventListener('change', (e) => { if (E.setXien(S, +e.target.value)) commit(); else render(false); });
-$('bonus').addEventListener('change', (e) => { const v = Math.round((+e.target.value || 0) / 5) * 5; E.setBonus(S, v); e.target.value = S.bonus; commit(); });
+$('bonus').addEventListener('change', (e) => { if (S.lv > S.startLv) { e.target.value = S.bonus; return; } const v = Math.round((+e.target.value || 0) / 5) * 5; E.setBonus(S, v); e.target.value = S.bonus; commit(); });
 $('rows').addEventListener('click', (e) => {
   const b = e.target.closest('button'); if (!b) return;
   if (b.dataset.up != null) act.up(+b.dataset.up, e.shiftKey);
@@ -840,7 +840,20 @@ $('b-lv').onclick = () => act.lv(1);
 $('b-lvd').onclick = () => { const R = E.levelDown(S); if (R) { S = R; commit(true, 'lvd'); } };
 $('b-back').onclick = act.back; $('b-fwd').onclick = act.fwd; $('b-dback').onclick = act.dashBack; $('b-dfwd').onclick = act.dashFwd; $('b-reset').onclick = act.reset;
 $('b-load').onclick = act.load; $('b-recipe').onclick = act.recipe;
-$('b-clear').onclick = () => { $('logarea').value = ''; $('logarea').focus(); };
+$('b-clear').onclick = () => { setLog(''); $('logarea').focus(); };
+// 配點記錄不能打字、刪字、剪下或拖放，只能選取／複製；貼上會整份取代原本的內容（用來讀取別人的記錄）
+(() => {
+  const ta = $('logarea');
+  ta.addEventListener('paste', (e) => {
+    e.preventDefault();
+    const t = (e.clipboardData || window.clipboardData).getData('text');
+    if (t) { setLog(t.replace(/\r\n?/g, '\n')); ta.scrollTop = 0; toast('已貼上記錄，按「讀取記錄」載入'); }
+  });
+  ta.addEventListener('beforeinput', (e) => e.preventDefault());
+  ['cut', 'drop'].forEach((ev) => ta.addEventListener(ev, (e) => e.preventDefault()));
+  ta.addEventListener('input', () => { if (ta.value !== logShown) ta.value = logShown; });
+  ta.addEventListener('compositionend', () => { if (ta.value !== logShown) ta.value = logShown; });
+})();
 $('b-copy').onclick = () => {
   const ta = $('logarea');
   navigator.clipboard.writeText(ta.value).then(() => toast('已複製')).catch(() => { ta.focus(); ta.select(); toast('已選取全部文字，請按 Ctrl+C 複製'); });
@@ -852,7 +865,6 @@ $('b-copy').onclick = () => {
 const typing = () => ['TEXTAREA', 'INPUT', 'SELECT'].includes(document.activeElement && document.activeElement.tagName);
 window.addEventListener('keydown', (e) => {
   shift = e.shiftKey;
-  if (!$('modal').hidden) { if (e.key === 'Escape') closeEdit(); return; }
   if (e.key === 'Escape') { document.activeElement.blur(); return; }
   if (typing() || e.ctrlKey || e.metaKey || e.altKey) return;
   const k = e.key.toUpperCase();
@@ -863,30 +875,11 @@ window.addEventListener('keydown', (e) => {
   else if (e.key === 'ArrowRight') { e.shiftKey ? act.dashFwd() : act.fwd(); e.preventDefault(); }
   else if (k === 'G') act.recipe();
   else if (k === 'P') act.load();
-  else if (k === 'T') openEdit();
   else if (e.key === 'Enter') { $('logarea').focus(); e.preventDefault(); }
 });
 window.addEventListener('keyup', (e) => (shift = e.shiftKey));
 window.addEventListener('blur', () => (shift = false));
 
-// status edit
-function openEdit() {
-  const n = D.STATUS_NAME;
-  const fld = (id, label, v, max) => `<div class="field"><label class="label" for="${id}">${label}</label><input type="number" id="${id}" min="0" max="${max}" value="${v}"></div>`;
-  $('editgrid').innerHTML = fld('e-lv', 'LV', S.lv, D.MAX_LEVEL) + S.st.slice(0, 10).map((v, i) => fld('e-s' + i, n[i], v, D.MAX_STATUS[i])).join('') + fld('e-pts', 'POINT', S.pts, 99999);
-  $('editxi').innerHTML = E.availableXien(S.c).map((x) => fld('e-x' + x, E.xienZh(x).split(' ')[0], S.xi[x], 999)).join('');
-  $('modal').hidden = false; $('e-lv').focus();
-}
-function closeEdit() { $('modal').hidden = true; }
-$('b-edit').onclick = openEdit; $('m-cancel').onclick = closeEdit;
-$('modal').addEventListener('click', (e) => { if (e.target === $('modal')) closeEdit(); });
-$('m-ok').onclick = () => {
-  const num = (id, max) => Math.max(0, Math.min(max, parseInt($(id).value, 10) || 0));
-  const v = { lv: Math.max(1, num('e-lv', D.MAX_LEVEL)), st: [], pts: num('e-pts', 99999), xi: {} };
-  for (let i = 0; i < 10; i++) v.st[i] = num('e-s' + i, D.MAX_STATUS[i]);
-  for (const x of E.availableXien(S.c)) v.xi[x] = num('e-x' + x, 999);
-  S = E.fromStatus(S.c, S.s, S.bonus, v); hist = []; histKey = []; hi = -1; closeEdit(); commit(); toast('已從編輯後的狀態開始');
-};
 
 // ---------- 角色圖片（擁有者上傳，存進頁面本身，所有人都看得到） ----------
 const AV_COLORS = ['#3b36a8', '#b8323f', '#2a5fc0', '#2f8a5a', '#9a6d00', '#8a3fa0', '#c05a1f', '#1f7a7a'];
@@ -958,7 +951,7 @@ const SAMPLE = 'LV   1       :\n加成         : 50%\nXien         : 劍系 STAB
 (function boot() {
   const saved = load('oresim-log');
   S = (saved && E.loadLog(saved)) || E.loadLog(SAMPLE);
-  if (HIDDEN_CHARS.includes(S.c)) S = E.loadLog(SAMPLE);
+  if (HIDDEN_CHARS.includes(S.c) || S.start || S.midBonus) S = E.loadLog(SAMPLE);
   commit(true);
   if (!saved) toast('目前顯示的是範例路線（麥克斯明・STAB→DEX→AGI），選角色或按「重設」即可重新開始');
 })();
